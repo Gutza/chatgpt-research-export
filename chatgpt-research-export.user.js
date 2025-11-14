@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Deep Research Markdown Exporter
 // @namespace    https://github.com/ckep1/chatgpt-research-export
-// @version      1.0.0
+// @version      1.0.1
 // @description  Export ChatGPT deep research content with proper markdown formatting and numbered citations
 // @author       Chris Kephart
 // @match        https://chatgpt.com/*
@@ -26,15 +26,19 @@
         }
     }
 
+    // Function to escape special characters in content
+    function escapeContent(text) {
+        return text.replace(/\$/g, '\\$');
+    }
+
     // Function to convert HTML content to markdown
     function convertToMarkdown(element) {
-        let markdown = '';
         let sourceCounter = 1;
         const sourceMap = new Map(); // Track unique sources
 
         function processNode(node) {
             if (node.nodeType === Node.TEXT_NODE) {
-                return node.textContent;
+                return escapeContent(node.textContent);
             }
 
             if (node.nodeType !== Node.ELEMENT_NODE) {
