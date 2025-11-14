@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Deep Research Markdown Exporter
 // @namespace    https://github.com/ckep1/chatgpt-research-export
-// @version      1.0.1
-// @description  Export ChatGPT deep research content with proper markdown formatting and numbered citations
+// @version      1.2.0
+// @description  Export ChatGPT deep research content with proper markdown formatting, numbered citations, and table support
 // @author       Chris Kephart
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -35,8 +35,128 @@
     function convertToMarkdown(element) {
         let sourceCounter = 1;
         const sourceMap = new Map(); // Track unique sources
+        const headingSanitization = [
+            '**',
+            '*',
+            '_',
+        ]
 
-        function processNode(node) {
+        // Helper function to sanitize cell content for markdown tables
+        function sanitizeCellContent(content) {
+            return content
+                .replace(/\|/g, '\\|')      // Escape pipe characters
+                .replace(/\n/g, ' ')         // Replace newlines with spaces
+                .trim();                     // Trim whitespace
+        }
+
+        // Helper function to sanitize header content for markdown tables
+        function sanitizeHeadingContent(content) {
+            let cleanContent = sanitizeCellContent(content);
+            for (const sanitization of headingSanitization) {
+                if (!cleanContent.startsWith(sanitization) || !cleanContent.endsWith(sanitization)) {
+                    continue;
+                }
+
+                // Remove styling from headings, let the markdown renderer handle it gracefully
+                cleanContent = cleanContent.slice(sanitization.length, -sanitization.length);
+            }
+            return cleanContent;
+        }
+
+        // Helper function to process tables while preserving structure
+        function processTable(tableNode) {
+            let headerRow = null;
+            const bodyRows = [];
+
+            // Try to get header from thead
+            const thead = tableNode.querySelector('thead');
+            if (thead) {
+                const headerTrs = thead.querySelectorAll('tr');
+                if (headerTrs.length > 1) {
+                    console.warn('Table has multiple <tr> in <thead>, using only first row');
+                }
+                if (headerTrs.length > 0) {
+                    headerRow = headerTrs[0];
+                }
+            }
+
+            // Get body rows from tbody or direct tr children
+            const tbody = tableNode.querySelector('tbody');
+            if (tbody) {
+                bodyRows.push(...tbody.querySelectorAll('tr'));
+            } else {
+                // No tbody, get tr elements directly from table
+                const directTrs = Array.from(tableNode.children).filter(child => 
+                    child.tagName.toLowerCase() === 'tr'
+                );
+                bodyRows.push(...directTrs);
+            }
+
+            // If no header row found in thead, use first body row as header
+            if (!headerRow && bodyRows.length > 0) {
+                headerRow = bodyRows.shift();
+            }
+
+            // If still no rows, return empty string
+            if (!headerRow && bodyRows.length === 0) {
+                console.warn('Table has no rows, skipping');
+                return '';
+            }
+
+            // Process header row
+            const headerCells = [];
+            if (headerRow) {
+                const cells = headerRow.querySelectorAll('th, td');
+                for (const cell of cells) {
+                    const cellContent = processNode(cell, true);
+                    headerCells.push(sanitizeHeadingContent(cellContent));
+                }
+            }
+
+            // If no header cells, return empty string
+            if (headerCells.length === 0) {
+                console.warn('Table has no header cells, skipping');
+                return '';
+            }
+
+            const columnCount = headerCells.length;
+
+            // Build markdown table
+            let markdown = '';
+
+            // Header row
+            markdown += '| ' + headerCells.join(' | ') + ' |\n';
+
+            // Separator row
+            markdown += '| ' + headerCells.map(() => '---').join(' | ') + ' |\n';
+
+            // Body rows
+            for (const row of bodyRows) {
+                const cells = row.querySelectorAll('th, td');
+                const rowCells = [];
+
+                for (const cell of cells) {
+                    const cellContent = processNode(cell, true);
+                    rowCells.push(sanitizeCellContent(cellContent));
+                }
+
+                // Handle column count mismatches
+                if (rowCells.length < columnCount) {
+                    const missing = columnCount - rowCells.length;
+                    rowCells.push(...Array(missing).fill(''));
+                    console.warn(`Table row has fewer cells than header (${rowCells.length} vs ${columnCount}), padding with empty cells`);
+                } else if (rowCells.length > columnCount) {
+                    console.warn(`Table row has more cells than header (${rowCells.length} vs ${columnCount}), truncating`);
+                    rowCells.splice(columnCount);
+                }
+
+                markdown += '| ' + rowCells.join(' | ') + ' |\n';
+            }
+
+            return markdown + '\n';
+        }
+
+        function processNode(node, inTable = false) {
             if (node.nodeType === Node.TEXT_NODE) {
                 return escapeContent(node.textContent);
             }
@@ -46,11 +166,21 @@
             }
 
             const tagName = node.tagName.toLowerCase();
+
+            // Handle tables specially - need structure, not flattened content
+            if (tagName === 'table') {
+                if (inTable) {
+                    console.warn('Nested table detected, skipping');
+                    return '';
+                }
+                return processTable(node);
+            }
+
             let content = '';
 
             // Process child nodes
             for (const child of node.childNodes) {
-                content += processNode(child);
+                content += processNode(child, inTable);
             }
 
             switch (tagName) {
@@ -131,12 +261,18 @@
                     }
                     return content;
                 }
+                case 'thead':
+                case 'tbody':
+                case 'tr':
+                case 'th':
+                case 'td':
+                    return content; // Pass through content for nested processing
                 default:
                     return content;
             }
         }
 
-        return processNode(element);
+        return processNode(element, false);
     }
 
     // Function to get today's date in YYYY-MM-DD format
