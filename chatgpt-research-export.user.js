@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Deep Research Markdown Exporter
 // @namespace    https://github.com/ckep1/chatgpt-research-export
-// @version      1.3.0
+// @version      1.4.0
 // @description  Export ChatGPT deep research content with proper markdown formatting, numbered citations, and table support
 // @author       Chris Kephart
 // @match        https://chatgpt.com/*
@@ -90,7 +90,7 @@
                 bodyRows.push(...tbody.querySelectorAll('tr'));
             } else {
                 // No tbody, get tr elements directly from table
-                const directTrs = Array.from(tableNode.children).filter(child => 
+                const directTrs = Array.from(tableNode.children).filter(child =>
                     child.tagName.toLowerCase() === 'tr'
                 );
                 bodyRows.push(...directTrs);
@@ -160,6 +160,10 @@
             return markdown + '\n';
         }
 
+        function renderCitationLink(href, sourceNumber) {
+            return ` [\[${sourceNumber}\]](${href})`;
+        }
+        
         function processNode(node, inTable = false) {
             if (node.nodeType === Node.TEXT_NODE) {
                 return escapeContent(node.textContent);
@@ -222,48 +226,51 @@
                     return `\`\`\`\n${content}\n\`\`\`\n\n`;
                 case 'a': {
                     const href = node.getAttribute('href');
-                    if (href) {
-                        // Skip if this link is inside a citation span (already handled)
-                        if (node.closest('span[data-state="closed"]')) {
-                            return '';
-                        }
-
-                        const baseUrl = getBaseUrl(href);
-
-                        // Check if we've seen this base URL before
-                        if (!sourceMap.has(baseUrl)) {
-                            sourceMap.set(baseUrl, sourceCounter);
-                            sourceCounter++;
-                        }
-
-                        const sourceNumber = sourceMap.get(baseUrl);
-                        return `([${sourceNumber}](${href}))`;
+                    if (!href) {
+                        return content;
                     }
-                    return content;
+
+                    // Skip if this link is inside a citation span (already handled)
+                    if (node.closest('span[data-state="closed"]')) {
+                        return '';
+                    }
+
+                    const baseUrl = getBaseUrl(href);
+
+                    // Check if we've seen this base URL before
+                    if (!sourceMap.has(baseUrl)) {
+                        sourceMap.set(baseUrl, sourceCounter);
+                        sourceCounter++;
+                    }
+
+                    const sourceNumber = sourceMap.get(baseUrl);
+                    return renderCitationLink(href, sourceNumber);
                 }
                 case 'br':
                     return '\n';
                 case 'span': {
                     // Handle citation spans with data-state="closed"
-                    if (node.getAttribute('data-state') === 'closed') {
-                        // Find the nested link
-                        const link = node.querySelector('a[href]');
-                        if (link) {
-                            const href = link.getAttribute('href');
-                            const baseUrl = getBaseUrl(href);
+                    if (node.getAttribute('data-state') !== 'closed') {
+                        return content;
+                    }
 
-                            // Check if we've seen this base URL before
-                            if (!sourceMap.has(baseUrl)) {
-                                sourceMap.set(baseUrl, sourceCounter);
-                                sourceCounter++;
-                            }
-
-                            const sourceNumber = sourceMap.get(baseUrl);
-                            return `([${sourceNumber}](${href}))`;
-                        }
+                    // Find the nested link
+                    const link = node.querySelector('a[href]');
+                    if (!link) {
                         return '';
                     }
-                    return content;
+
+                    const href = link.getAttribute('href');
+                    const baseUrl = getBaseUrl(href);
+
+                    // Check if we've seen this base URL before
+                    if (!sourceMap.has(baseUrl)) {
+                        sourceMap.set(baseUrl, sourceCounter);
+                        sourceCounter++;
+                    }
+
+                    const sourceNumber = sourceMap.get(baseUrl);
+                    return renderCitationLink(href, sourceNumber);
                 }
                 case 'thead':
                 case 'tbody':
