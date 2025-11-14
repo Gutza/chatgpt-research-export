@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Deep Research Markdown Exporter
 // @namespace    https://github.com/ckep1/chatgpt-research-export
-// @version      1.2.0
+// @version      1.3.0
 // @description  Export ChatGPT deep research content with proper markdown formatting, numbered citations, and table support
 // @author       Chris Kephart
 // @match        https://chatgpt.com/*
@@ -16,8 +16,12 @@
 (function() {
     'use strict';
 
-    // Function to get the base URL without fragments or query parameters
+    // Function to get the base URL without fragments or query parameters.
     function getBaseUrl(url) {
+        if (!deduplicateCitations) {
+            return url;
+        }
+
         try {
             const urlObj = new URL(url);
             return `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
@@ -323,16 +327,41 @@ date: ${getTodayDate()}
     }
 
     function updateMenuCommand() {
-        // Remove existing menu command if it exists
-        if (window.menuCommandId) {
-            GM_unregisterMenuCommand(window.menuCommandId);
+        // Define a "namespace" for the menu command IDs
+        const namespace = 'chatgptResearchExport';
+        if (!window[namespace]) {
+            window[namespace] = {};
+        }
+        // Remove existing frontmatter menu command if it exists
+        if (window[namespace].menuFrontmatterCommandId) {
+            GM_unregisterMenuCommand(window[namespace].menuFrontmatterCommandId);
         }
 
-        // Register new menu command
-        window.menuCommandId = GM_registerMenuCommand(
-            `${includeFrontmatter ? '✓' : '✗'} Include Frontmatter`,
+        // Register new frontmatter menu command
+        window[namespace].menuFrontmatterCommandId = GM_registerMenuCommand(
+            `${includeFrontmatter ? '☑' : '☐'} Include Frontmatter`,
             toggleFrontmatter
         );
+
+        // Remove existing deduplication menu command if it exists
+        if (window[namespace].menuDeduplicateCitationsCommandId) {
+            GM_unregisterMenuCommand(window[namespace].menuDeduplicateCitationsCommandId);
+        }
+
+        // Register new deduplication menu command
+        window[namespace].menuDeduplicateCitationsCommandId = GM_registerMenuCommand(
+            `${deduplicateCitations ? '☑' : '☐'} Deduplicate Citations`,
+            toggleDeduplicateCitations
+        );
+    }
+
+    // Toggle citation deduplication strategy setting
+    let deduplicateCitations = GM_getValue('deduplicateCitations', true);
+    function toggleDeduplicateCitations() {
+        deduplicateCitations = !deduplicateCitations;
+        GM_setValue('deduplicateCitations', deduplicateCitations);
+        alert(`Citation deduplication ${deduplicateCitations ? 'enabled' : 'disabled'}`);
+        updateMenuCommand();
     }
 
     // Function to export deep research content
