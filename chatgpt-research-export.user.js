@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Deep Research Markdown Exporter
 // @namespace    https://github.com/ckep1/chatgpt-research-export
-// @version      1.4.0
+// @version      1.5.0
 // @description  Export ChatGPT deep research content with proper markdown formatting, numbered citations, and table support
 // @author       Chris Kephart
 // @match        https://chatgpt.com/*
@@ -311,6 +311,22 @@
             .trim(); // Remove leading/trailing whitespace
     }
 
+    // Function to sanitize title for use as filename
+    function sanitizeTitleForFilename(title) {
+        return title
+            .replace(/[<>:"/\\|?*]/g, '-') // Replace invalid filename characters
+            .replace(/\s+/g, '-') // Replace spaces with dashes
+            .replace(/-+/g, '-') // Collapse multiple dashes
+            .replace(/^-|-$/g, '') // Remove leading/trailing dashes
+            .substring(0, 100) // Limit length
+            .trim() || 'chatgpt-research-export'; // Fallback if empty
+    }
+
+    // Function to get all deep research containers
+    function getDeepResearchContainers() {
+        return Array.from(document.querySelectorAll('.deep-research-result'));
+    }
+
     // Function to generate frontmatter
     function generateFrontmatter(title, url) {
         const sanitizedTitle = sanitizeTitle(title);
@@ -372,12 +388,9 @@ date: ${getTodayDate()}
     }
 
     // Function to export deep research content
-    function exportDeepResearch() {
-        // Find the deep research result container
-        const researchContainer = document.querySelector('.deep-research-result');
-
+    function exportDeepResearch(researchContainer) {
         if (!researchContainer) {
-            alert('No deep research content found on this page.');
+            alert('No deep research content found.');
             return;
         }
 
@@ -390,9 +403,11 @@ date: ${getTodayDate()}
             .replace(/^\s+|\s+$/g, '') // Trim start and end
             .replace(/\n{3,}/g, '\n\n'); // Limit to maximum 2 consecutive newlines
 
+        // Extract title for filename
+        const title = extractTitle(researchContainer);
+
         // Add frontmatter if enabled
         if (includeFrontmatter) {
-            const title = extractTitle(researchContainer);
             const currentUrl = window.location.href;
             const frontmatter = generateFrontmatter(title, currentUrl);
             markdown = frontmatter + markdown;
@@ -403,7 +418,7 @@ date: ${getTodayDate()}
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = 'chatgpt-research-export.md';
+        link.download = `${sanitizeTitleForFilename(title)}.md`;
 
         // Trigger download
         document.body.appendChild(link);
@@ -411,15 +426,13 @@ date: ${getTodayDate()}
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
 
-        console.log('Deep research content exported successfully!');
+        console.log(`Deep research content exported: ${link.download}`);
     }
 
     // Function to copy to clipboard
-    function copyDeepResearchToClipboard() {
-        const researchContainer = document.querySelector('.deep-research-result');
-
+    function copyDeepResearchToClipboard(researchContainer) {
         if (!researchContainer) {
-            alert('No deep research content found on this page.');
+            alert('No deep research content found.');
             return;
         }
 
@@ -453,34 +466,21 @@ date: ${getTodayDate()}
         });
     }
 
-    // Add export buttons to the page
-    function addExportButtons() {
-        // Check if buttons already exist
-        if (document.getElementById('deep-research-export-btn')) {
-            return;
-        }
-
-        // Find a good place to add the buttons (near the research container)
-        const researchContainer = document.querySelector('.deep-research-result');
-        if (!researchContainer) {
-            return;
-        }
-
-        // Create button container
-        const buttonContainer = document.createElement('div');
-        buttonContainer.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 9999;
+    // Create a button group for export/copy actions
+    function createButtonGroup(researchContainer, position) {
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'deep-research-export-buttons';
+        buttonGroup.style.cssText = `
             display: flex;
             gap: 10px;
-            flex-direction: column;
+            flex-direction: row;
+            justify-content: flex-start;
+            ${position === 'top' ? 'margin-bottom: 16px;' : 'margin-top: 16px;'}
         `;
 
         // Create download button
         const downloadBtn = document.createElement('button');
-        downloadBtn.id = 'deep-research-export-btn';
+        downloadBtn.className = 'deep-research-export-btn';
         downloadBtn.textContent = 'Export Research (MD)';
         downloadBtn.style.cssText = `
             background: #10a37f;
@@ -492,10 +492,11 @@ date: ${getTodayDate()}
             font-size: 14px;
             font-weight: 500;
         `;
-        downloadBtn.addEventListener('click', exportDeepResearch);
+        downloadBtn.addEventListener('click', () => exportDeepResearch(researchContainer));
 
         // Create copy button
         const copyBtn = document.createElement('button');
+        copyBtn.className = 'deep-research-copy-btn';
         copyBtn.textContent = 'Copy Research (MD)';
         copyBtn.style.cssText = `
             background: #6366f1;
@@ -507,11 +508,35 @@ date: ${getTodayDate()}
             font-size: 14px;
             font-weight: 500;
         `;
-        copyBtn.addEventListener('click', copyDeepResearchToClipboard);
+        copyBtn.addEventListener('click', () => copyDeepResearchToClipboard(researchContainer));
 
-        buttonContainer.appendChild(downloadBtn);
-        buttonContainer.appendChild(copyBtn);
-        document.body.appendChild(buttonContainer);
+        buttonGroup.appendChild(downloadBtn);
+        buttonGroup.appendChild(copyBtn);
+
+        return buttonGroup;
+    }
+
+    // Add export buttons to all deep research containers
+    function addExportButtonsToContainers() {
+        const containers = getDeepResearchContainers();
+
+        for (const container of containers) {
+            // Skip if buttons already added (witness flag)
+            if (container.dataset.exportButtonsAdded) {
+                continue;
+            }
+
+            // Create and insert button group at top
+            const topButtons = createButtonGroup(container, 'top');
+            container.parentNode.insertBefore(topButtons, container.parentNode.firstChild);
+
+            // Create and insert button group at bottom
+            const bottomButtons = createButtonGroup(container, 'bottom');
+            container.parentNode.appendChild(bottomButtons);
+
+            // Mark container as processed
+            container.dataset.exportButtonsAdded = 'true';
+        }
     }
 
     // Watch for deep research content to appear
@@ -519,9 +544,13 @@ date: ${getTodayDate()}
         const observer = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 if (mutation.type === 'childList') {
-                    const researchContainer = document.querySelector('.deep-research-result');
-                    if (researchContainer && !document.getElementById('deep-research-export-btn')) {
-                        addExportButtons();
+                    // Check if there are any containers without buttons
+                    const containers = getDeepResearchContainers();
+                    const hasUnprocessedContainers = containers.some(
+                        container => !container.dataset.exportButtonsAdded
+                    );
+                    if (hasUnprocessedContainers) {
+                        addExportButtonsToContainers();
                         break;
                     }
                 }
@@ -539,7 +568,7 @@ date: ${getTodayDate()}
         // Register menu command
         updateMenuCommand();
 
-        addExportButtons();
+        addExportButtonsToContainers();
         watchForResearchContent();
     }, 2000);
 
